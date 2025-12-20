@@ -1,329 +1,285 @@
-# AWS ECS 部署速查表 🚀
+# AWS 設置指南 ☁️
 
-> 快速構建和部署指南 - 適用於已有基礎設施（VPC、Security Groups）的場景
+> 按順序完成以下步驟，手動創建所有 AWS 資源
 
-## 📐 架構總覽
+## 📋 資源清單
 
-```
-Internet
-    ↓
-Application Load Balancer (Public Subnets)
-    ↓
-ECS Fargate Tasks (Private Subnets)
-    ↓
-RDS MySQL (Private Subnets)
-```
+完成後你會擁有：
 
-**核心組件**：RDS → IAM Roles → ECR → CloudWatch → ECS Cluster → ALB/TG → Docker Image → Task Def → Service
-
----
-
-## ⚡ 快速命令
-
-### 設置環境變數（每次使用前執行）
-
-```bash
-export REGION="us-west-2"
-export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export CLUSTER="doublespot-cluster"
-export SERVICE="backend-service"
-export ECR_REPO="doublespot-backend"
-```
+| 資源 | 用途 |
+|------|------|
+| VPC + Subnets | 網絡基礎 |
+| Security Groups | 防火牆規則 |
+| RDS MySQL | 數據庫 |
+| ECR | Docker 映像倉庫 |
+| ECS Cluster + Service | 運行 Backend 容器 |
+| ALB | 負載均衡器 |
+| S3 + CloudFront | 託管 Frontend 靜態網站 |
 
 ---
 
-## 🤖 自動化設置（推薦）
+## Part 1: 網絡設置
 
-使用自動化腳本一鍵創建所有基礎設施：
+### 1.1 創建 VPC
 
+**AWS Console**: VPC → Create VPC
+
+| 設定 | 值 |
+|------|-----|
+| Name | `my-project-vpc` |
+| IPv4 CIDR | `10.0.0.0/16` |
+| 選擇 | VPC and more |
+| AZs | 2 |
+| Public subnets | 2 |
+| Private subnets | 2 |
+| NAT gateways | 1 per AZ |
+
+✅ **驗證**：
 ```bash
-# 1. 給腳本添加執行權限
-chmod +x scripts/*.sh
-
-# 2. 運行基礎設施設置腳本
-./scripts/setup-aws-infrastructure.sh
-
-# 3. 載入生成的配置
-source infrastructure-config.env
-
-# 完成！所有資源已自動創建
+aws ec2 describe-vpcs --filters "Name=tag:Name,Values=my-project-vpc" --query 'Vpcs[0].VpcId'
 ```
 
-腳本會自動創建：
+### 1.2 創建 Security Groups
 
-- ✅ IAM Roles
-- ✅ ECR Repository
-- ✅ CloudWatch Log Group
-- ✅ ECS Cluster
-- ✅ Application Load Balancer
-- ✅ Target Group
-- ✅ RDS MySQL（可選）
+**AWS Console**: VPC → Security Groups → Create
+
+#### ALB Security Group
+
+| 設定 | 值 |
+|------|-----|
+| Name | `my-project-alb-sg` |
+| VPC | `my-project-vpc` |
+| Inbound | HTTP (80) from 0.0.0.0/0 |
+| Inbound | HTTPS (443) from 0.0.0.0/0 |
+
+#### ECS Security Group
+
+| 設定 | 值 |
+|------|-----|
+| Name | `my-project-ecs-sg` |
+| VPC | `my-project-vpc` |
+| Inbound | TCP 3000 from `my-project-alb-sg` |
+
+#### RDS Security Group
+
+| 設定 | 值 |
+|------|-----|
+| Name | `my-project-rds-sg` |
+| VPC | `my-project-vpc` |
+| Inbound | MySQL (3306) from `my-project-ecs-sg` |
 
 ---
 
-## 🏗️ 手動設置（或自動化腳本的詳細步驟）
+## Part 2: 數據庫
 
-### 1. RDS 數據庫
+### 2.1 創建 DB Subnet Group
 
+**AWS Console**: RDS → Subnet groups → Create
+
+| 設定 | 值 |
+|------|-----|
+| Name | `my-project-db-subnet-group` |
+| VPC | `my-project-vpc` |
+| Subnets | 選擇 2 個 **private** subnets |
+
+### 2.2 創建 RDS MySQL
+
+**AWS Console**: RDS → Databases → Create
+
+| 設定 | 值 |
+|------|-----|
+| Engine | MySQL 8.0 |
+| Template | Free tier |
+| DB identifier | `my-project-mysql` |
+| Master username | `admin` |
+| Master password | （記住這個密碼！） |
+| Instance class | `db.t3.micro` |
+| VPC | `my-project-vpc` |
+| Subnet group | `my-project-db-subnet-group` |
+| Public access | **No** |
+| Security group | `my-project-rds-sg` |
+| Initial database | `mydb` |
+
+⏱️ 等待 5-10 分鐘...
+
+✅ **記錄 Endpoint**：
 ```bash
-# AWS Console 創建
-# RDS → Create database → MySQL 8.0 → Free tier
-# 記錄 endpoint, username, password
-```
-
-### 2. IAM Roles
-
-```bash
-# 需要兩個 Roles：
-# - ecsTaskExecutionRole (附加 AmazonECSTaskExecutionRolePolicy)
-# - ecsTaskRole (暫時無需附加策略)
-```
-
-### 3. ECR Repository
-
-```bash
-aws ecr create-repository --region $REGION --repository-name $ECR_REPO
-```
-
-### 4. CloudWatch Log Group
-
-```bash
-aws logs create-log-group --region $REGION --log-group-name /ecs/doublespot-backend
-```
-
-### 5. ECS Cluster
-
-```bash
-aws ecs create-cluster --region $REGION --cluster-name $CLUSTER
-```
-
-### 6. Target Group (在創建 ALB 時一起創建)
-
-```bash
-# AWS Console:
-# EC2 → Load Balancers → Create ALB
-# 配置 Target Group: Type=IP, Port=3000, Health=/health
+aws rds describe-db-instances --db-instance-identifier my-project-mysql \
+  --query 'DBInstances[0].Endpoint.Address' --output text
 ```
 
 ---
 
-## 🐳 構建與部署流程
+## Part 3: IAM Roles
 
-### 選擇架構（選一個）
+### 3.1 ECS Task Execution Role
 
-| 架構  | 構建命令                                  | Task Def 配置            | 適用場景      |
-| ----- | ----------------------------------------- | ------------------------ | ------------- |
-| AMD64 | `docker build --platform linux/amd64 ...` | 默認（不需要額外配置）   | 兼容性最好    |
-| ARM64 | `docker build -t ...`（M1/M2 Mac 原生）   | 需添加 `runtimePlatform` | 節省 20% 成本 |
+**AWS Console**: IAM → Roles → Create role
 
-### 自動化部署（推薦）
+| 步驟 | 設定 |
+|------|------|
+| Trusted entity | AWS service → Elastic Container Service → Elastic Container Service Task |
+| Policy | `AmazonECSTaskExecutionRolePolicy` |
+| Role name | `ecsTaskExecutionRole` |
 
+### 3.2 ECS Task Role
+
+**AWS Console**: IAM → Roles → Create role
+
+| 步驟 | 設定 |
+|------|------|
+| Trusted entity | AWS service → Elastic Container Service → Elastic Container Service Task |
+| Policy | （暫時不附加） |
+| Role name | `ecsTaskRole` |
+
+---
+
+## Part 4: Container Registry (ECR)
+
+**AWS Console**: ECR → Repositories → Create
+
+| 設定 | 值 |
+|------|-----|
+| Visibility | Private |
+| Name | `my-project-backend` |
+
+✅ **記錄 URI**：
 ```bash
-# 1. 構建並推送映像（使用你選擇的架構）
-cd backend
-export IMAGE_TAG="v1.0.0"
-docker build --platform linux/amd64 -t $ECR_REPO:$IMAGE_TAG .
-docker tag $ECR_REPO:$IMAGE_TAG $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
-docker push $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
-
-# 2. 更新 task-definition.json（映像 URI、RDS endpoint 等）
-
-# 3. 註冊 Task Definition
-aws ecs register-task-definition --region $REGION --cli-input-json file://task-definition.json
-
-# 4. 使用腳本自動部署 Service
-cd ..
-./scripts/deploy-ecs-service.sh
-
-# 完成！腳本會自動創建/更新 Service 並監控部署狀態
+aws ecr describe-repositories --repository-names my-project-backend \
+  --query 'repositories[0].repositoryUri' --output text
 ```
 
-### 手動部署命令
+---
+
+## Part 5: CloudWatch Logs
+
+**AWS Console**: CloudWatch → Log groups → Create
+
+| 設定 | 值 |
+|------|-----|
+| Name | `/ecs/my-project-backend` |
+| Retention | 7 days |
+
+---
+
+## Part 6: ECS Cluster
+
+**AWS Console**: ECS → Clusters → Create
+
+| 設定 | 值 |
+|------|-----|
+| Name | `my-project-cluster` |
+| Infrastructure | AWS Fargate |
+
+---
+
+## Part 7: Load Balancer
+
+### 7.1 創建 Target Group
+
+**AWS Console**: EC2 → Target Groups → Create
+
+| 設定 | 值 |
+|------|-----|
+| Target type | **IP** |
+| Name | `my-project-backend-tg` |
+| Protocol | HTTP |
+| Port | 3000 |
+| VPC | `my-project-vpc` |
+| Health check path | `/health` |
+
+### 7.2 創建 ALB
+
+**AWS Console**: EC2 → Load Balancers → Create → Application Load Balancer
+
+| 設定 | 值 |
+|------|-----|
+| Name | `my-project-alb` |
+| Scheme | Internet-facing |
+| VPC | `my-project-vpc` |
+| Subnets | 2 個 **public** subnets |
+| Security group | `my-project-alb-sg` |
+| Listener | HTTP:80 → `my-project-backend-tg` |
+
+✅ **記錄 DNS**：
+```bash
+aws elbv2 describe-load-balancers --names my-project-alb \
+  --query 'LoadBalancers[0].DNSName' --output text
+```
+
+---
+
+## Part 8: 構建並推送 Docker 映像
+
+### 8.1 登入 ECR
 
 ```bash
-# 1. 登入 ECR
-aws ecr get-login-password --region $REGION | \
+aws ecr get-login-password --region us-west-2 | \
   docker login --username AWS --password-stdin \
-  $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+  YOUR_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com
+```
 
-# 2. 構建映像（選擇架構）
+### 8.2 構建映像
+
+```bash
 cd backend
-export IMAGE_TAG="v1.0.0"  # 或使用 $(git rev-parse --short HEAD)
 
-# AMD64:
-docker build --platform linux/amd64 -t $ECR_REPO:$IMAGE_TAG .
+# 構建（使用 AMD64 架構，確保與 ECS 兼容）
+docker build --platform linux/amd64 -t my-project-backend:v1 .
+```
 
-# ARM64 (M1/M2 Mac):
-docker build -t $ECR_REPO:$IMAGE_TAG .
+### 8.3 推送映像
 
-# 3. 推送到 ECR
-docker tag $ECR_REPO:$IMAGE_TAG \
-  $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
-docker push $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+```bash
+# 標記
+docker tag my-project-backend:v1 \
+  YOUR_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/my-project-backend:v1
 
-# 4. 更新 task-definition.json
-# 編輯文件，更新 image URI, RDS endpoint, 密碼等
-
-# 5. 註冊 Task Definition
-aws ecs register-task-definition --region $REGION \
-  --cli-input-json file://task-definition.json
-
-# 6. 創建/更新 Service
-# 首次創建：
-TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups --region $REGION \
-  --names doublespot-backend-tg --query 'TargetGroups[0].TargetGroupArn' --output text)
-
-SUBNET_1=$(aws ec2 describe-subnets --region $REGION \
-  --filters "Name=tag:Name,Values=doublespot-test-private-us-west-2a" \
-  --query 'Subnets[0].SubnetId' --output text)
-
-SUBNET_2=$(aws ec2 describe-subnets --region $REGION \
-  --filters "Name=tag:Name,Values=doublespot-test-private-us-west-2b" \
-  --query 'Subnets[0].SubnetId' --output text)
-
-SG_ID=$(aws ec2 describe-security-groups --region $REGION \
-  --filters "Name=group-name,Values=doublespot-test-ecs-sg" \
-  --query 'SecurityGroups[0].GroupId' --output text)
-
-aws ecs create-service \
-  --region $REGION \
-  --cluster $CLUSTER \
-  --service-name $SERVICE \
-  --task-definition doublespot-backend \
-  --desired-count 1 \
-  --launch-type FARGATE \
-  --deployment-configuration "minimumHealthyPercent=0,maximumPercent=200" \
-  --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],securityGroups=[$SG_ID],assignPublicIp=DISABLED}" \
-  --load-balancers "targetGroupArn=$TARGET_GROUP_ARN,containerName=backend,containerPort=3000" \
-  --health-check-grace-period-seconds 60
-
-# 後續更新（已有 Service）：
-aws ecs update-service --region $REGION --cluster $CLUSTER \
-  --service $SERVICE --force-new-deployment
+# 推送
+docker push YOUR_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/my-project-backend:v1
 ```
 
 ---
 
-## 🔍 監控與診斷
+## Part 9: Task Definition
 
-### 檢查服務狀態
+### 9.1 編輯 task-definition.json
 
-```bash
-aws ecs describe-services --region $REGION --cluster $CLUSTER --services $SERVICE \
-  --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
-```
-
-### 查看日誌
-
-```bash
-aws logs tail /ecs/doublespot-backend --region $REGION --follow
-```
-
-### 檢查健康狀態
-
-```bash
-TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups --region $REGION \
-  --names doublespot-backend-tg --query 'TargetGroups[0].TargetGroupArn' --output text)
-
-aws elbv2 describe-target-health --region $REGION \
-  --target-group-arn $TARGET_GROUP_ARN
-```
-
-### 測試 ALB 端點
-
-```bash
-ALB_DNS=$(aws elbv2 describe-load-balancers --region $REGION \
-  --names doublespot-test-alb --query 'LoadBalancers[0].DNSName' --output text)
-
-curl http://$ALB_DNS/health
-```
-
-### 查看最近停止的任務
-
-```bash
-aws ecs list-tasks --region $REGION --cluster $CLUSTER \
-  --desired-status STOPPED --max-items 1 | \
-  jq -r '.taskArns[0]' | \
-  xargs -I {} aws ecs describe-tasks --region $REGION --cluster $CLUSTER --tasks {} \
-  --query 'tasks[0].{Reason:stoppedReason,Exit:containers[0].exitCode}'
-```
-
----
-
-## 🔧 常見問題快速修復
-
-### ❌ exec format error
-
-```bash
-# 原因：架構不匹配
-# 修復：重新構建正確架構的映像
-
-# 檢查當前 Task Definition 架構
-aws ecs describe-task-definition --region $REGION \
-  --task-definition doublespot-backend \
-  --query 'taskDefinition.runtimePlatform'
-
-# 重新構建（AMD64 或 ARM64）並推送
-# 然後強制更新
-aws ecs update-service --region $REGION --cluster $CLUSTER \
-  --service $SERVICE --force-new-deployment
-```
-
-### ❌ runningCount: 0（任務無法啟動）
-
-```bash
-# 原因：minimumHealthyPercent=100 阻止首次部署
-# 修復：
-aws ecs update-service --region $REGION --cluster $CLUSTER \
-  --service $SERVICE \
-  --deployment-configuration "minimumHealthyPercent=0,maximumPercent=200" \
-  --force-new-deployment
-```
-
-### ❌ Target 健康檢查失敗
-
-```bash
-# 檢查清單：
-# 1. 應用是否在 port 3000 監聽？
-# 2. /health 端點是否正常工作？
-# 3. Security Group 是否允許 ALB → ECS？
-
-# 查看 Security Group 規則
-aws ec2 describe-security-groups --region $REGION \
-  --filters "Name=group-name,Values=doublespot-test-ecs-sg" \
-  --query 'SecurityGroups[0].IpPermissions'
-```
-
----
-
-## 📝 Task Definition 關鍵配置
-
-### AMD64（默認）
+在 `backend/task-definition.json` 中填入實際值：
 
 ```json
 {
-  "family": "doublespot-backend",
+  "family": "my-project-backend",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "256",
   "memory": "512",
-  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
-  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskRole",
+  "executionRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskRole",
   "containerDefinitions": [
     {
       "name": "backend",
-      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/REPO:TAG",
-      "portMappings": [{ "containerPort": 3000 }],
+      "image": "YOUR_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/my-project-backend:v1",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
       "environment": [
-        { "name": "DB_HOST", "value": "RDS_ENDPOINT" },
+        { "name": "PORT", "value": "3000" },
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "DB_HOST", "value": "YOUR_RDS_ENDPOINT" },
+        { "name": "DB_PORT", "value": "3306" },
         { "name": "DB_USER", "value": "admin" },
-        { "name": "DB_PASSWORD", "value": "PASSWORD" },
-        { "name": "DB_NAME", "value": "doublespot" }
+        { "name": "DB_PASSWORD", "value": "YOUR_PASSWORD" },
+        { "name": "DB_NAME", "value": "mydb" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/doublespot-backend",
+          "awslogs-group": "/ecs/my-project-backend",
           "awslogs-region": "us-west-2",
           "awslogs-stream-prefix": "ecs"
         }
@@ -333,149 +289,182 @@ aws ec2 describe-security-groups --region $REGION \
 }
 ```
 
-### ARM64（添加此部分）
-
-```json
-{
-  "runtimePlatform": {
-    "cpuArchitecture": "ARM64",
-    "operatingSystemFamily": "LINUX"
-  }
-  // ... 其他配置相同
-}
-```
-
----
-
-## 🎯 Security Groups 配置檢查表
-
-| 來源                 | 目標     | Port    | 規則                           |
-| -------------------- | -------- | ------- | ------------------------------ |
-| Internet (0.0.0.0/0) | ALB      | 80, 443 | ALB-SG Inbound                 |
-| ALB-SG               | ECS-SG   | 3000    | ECS-SG Inbound                 |
-| ECS-SG               | RDS-SG   | 3306    | RDS-SG Inbound                 |
-| ECS-SG               | Internet | All     | ECS-SG Outbound (for ECR pull) |
-
----
-
-## 💡 最佳實踐
-
-1. **環境變數**：使用 AWS Secrets Manager 而非明文密碼
-2. **映像標籤**：使用 git SHA 或版本號，不要用 `latest`
-3. **架構選擇**：
-   - 首次部署：AMD64（安全）
-   - 生產優化：ARM64（省錢）
-4. **監控**：設置 CloudWatch Alarms 監控服務健康
-5. **部署策略**：生產環境改用 `minimumHealthyPercent=100`
-
----
-
-## 📋 完整部署檢查清單
-
-- [ ] RDS 實例運行（記錄 endpoint）
-- [ ] IAM Roles 已創建
-- [ ] ECR Repository 已創建
-- [ ] CloudWatch Log Group 已創建
-- [ ] ECS Cluster 已創建
-- [ ] ALB 和 Target Group 已配置
-- [ ] Security Groups 規則正確
-- [ ] Docker 映像已推送到 ECR
-- [ ] Task Definition 已註冊
-- [ ] ECS Service 已創建
-- [ ] `runningCount: 1` ✅
-- [ ] Target health: `healthy` ✅
-- [ ] `curl http://ALB_DNS/health` 返回 OK ✅
-
----
-
-## 🚀 快速重新部署
+### 9.2 註冊 Task Definition
 
 ```bash
-# 最常用的重新部署流程
-cd backend
-export IMAGE_TAG="v1.0.1"
-
-# 1. 構建並推送
-docker build --platform linux/amd64 -t $ECR_REPO:$IMAGE_TAG .
-docker tag $ECR_REPO:$IMAGE_TAG $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
-docker push $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
-
-# 2. 更新 task-definition.json 中的 image URI
-
-# 3. 註冊新版本
-aws ecs register-task-definition --region $REGION --cli-input-json file://task-definition.json
-
-# 4. 強制更新（ECS 會自動使用最新的 Task Definition revision）
-aws ecs update-service --region $REGION --cluster $CLUSTER --service $SERVICE --force-new-deployment
-
-# 5. 監控部署
-watch -n 10 'aws ecs describe-services --region $REGION --cluster $CLUSTER --services $SERVICE --query "services[0].{Running:runningCount,Desired:desiredCount}"'
+aws ecs register-task-definition --cli-input-json file://backend/task-definition.json
 ```
 
 ---
 
----
+## Part 10: ECS Service
 
-## 🔄 GitHub Actions 自動部署設置
-
-### 使用自動化腳本（推薦）
+### 10.1 獲取必要 ID
 
 ```bash
-# 確保已完成基礎設施設置
-source infrastructure-config.env
+# Target Group ARN
+aws elbv2 describe-target-groups --names my-project-backend-tg \
+  --query 'TargetGroups[0].TargetGroupArn' --output text
 
-# 運行 GitHub Actions 設置腳本
-./scripts/setup-github-actions.sh
+# Private Subnet IDs
+aws ec2 describe-subnets --filters "Name=tag:Name,Values=*private*" \
+  --query 'Subnets[*].SubnetId' --output text
 
-# 腳本會自動：
-# - 創建 OIDC Provider
-# - 創建 IAM Policy 和 Role
-# - 生成 GitHub Variables 配置清單
+# ECS Security Group ID
+aws ec2 describe-security-groups --filters "Name=group-name,Values=my-project-ecs-sg" \
+  --query 'SecurityGroups[0].GroupId' --output text
 ```
 
-### 手動設置步驟
+### 10.2 創建 Service
 
-**1. 創建 OIDC Provider**
+**AWS Console**: ECS → Clusters → my-project-cluster → Services → Create
+
+| 設定 | 值 |
+|------|-----|
+| Task definition | `my-project-backend` |
+| Service name | `backend-service` |
+| Desired tasks | 1 |
+| VPC | `my-project-vpc` |
+| Subnets | 2 個 private subnets |
+| Security group | `my-project-ecs-sg` |
+| Load balancer | `my-project-alb` |
+| Target group | `my-project-backend-tg` |
+| Container port | 3000 |
+
+⏱️ 等待 2-5 分鐘...
+
+### 10.3 測試
+
 ```bash
-# AWS Console: IAM → Identity providers → Add provider
-# Provider URL: https://token.actions.githubusercontent.com
-# Audience: sts.amazonaws.com
+# 獲取 ALB DNS
+ALB_DNS=$(aws elbv2 describe-load-balancers --names my-project-alb \
+  --query 'LoadBalancers[0].DNSName' --output text)
+
+# 測試健康檢查
+curl http://$ALB_DNS/health
 ```
 
-**2. 創建 IAM Role**
-```bash
-# 使用 SETUP_GUIDE.md 中的策略
-# Trust GitHub Actions OIDC Provider
-# 附加 ECR + ECS 權限
-```
-
-**3. 配置 GitHub Variables**
-
-前往 Repository → Settings → Secrets and variables → Actions → Variables
-
-| Variable | Value |
-|----------|-------|
-| `AWS_REGION` | `us-west-2` |
-| `AWS_ROLE_TO_ASSUME` | `arn:aws:iam::ACCOUNT_ID:role/github-actions-deploy-role` |
-| `ECR_REPOSITORY` | `doublespot-backend` |
-| `ECS_CLUSTER` | `doublespot-cluster` |
-| `ECS_SERVICE` | `backend-service` |
-| `CONTAINER_NAME` | `backend` |
-
-**4. 測試部署**
-```bash
-# 推送代碼到 main 分支觸發 workflow
-git add .
-git commit -m "feat: trigger CI/CD"
-git push origin main
-```
-
-詳細說明請參考 [GITHUB_ACTIONS_SETUP.md](./GITHUB_ACTIONS_SETUP.md)
+✅ **期望結果**: `{"status":"ok"}`
 
 ---
 
-**💾 保存此文件並收藏！**
+## Part 11: Frontend (S3 + CloudFront)
 
-需要詳細步驟說明請參考：
-- `NEXT_STEPS.md` - 完整部署指南
-- `GITHUB_ACTIONS_SETUP.md` - CI/CD 設置指南
+### 11.1 創建 S3 Bucket
+
+**AWS Console**: S3 → Create bucket
+
+| 設定 | 值 |
+|------|-----|
+| Name | `my-project-frontend-bucket`（必須全球唯一）|
+| Region | `us-west-2` |
+| Block all public access | ✅ 保持勾選 |
+
+### 11.2 創建 CloudFront Distribution
+
+**AWS Console**: CloudFront → Create distribution
+
+| 設定 | 值 |
+|------|-----|
+| Origin domain | 選擇你的 S3 bucket |
+| Origin access | Origin access control (OAC) |
+| Create new OAC | 點擊創建 |
+| Default root object | `index.html` |
+| Viewer protocol | Redirect HTTP to HTTPS |
+
+**創建後**：
+
+1. 點擊 "Copy policy" 複製 S3 bucket policy
+2. 前往 S3 → 你的 bucket → Permissions → Bucket policy
+3. 貼上並保存
+
+### 11.3 設置 SPA 錯誤頁面
+
+**CloudFront** → 你的 distribution → Error pages → Create custom error response
+
+| 設定 | 值 |
+|------|-----|
+| HTTP error code | 403 |
+| Customize error response | Yes |
+| Response page path | `/index.html` |
+| HTTP response code | 200 |
+
+對 404 錯誤重複以上設定。
+
+✅ **記錄 CloudFront Domain**（例如：`d1234abcd.cloudfront.net`）
+
+---
+
+## 🔍 常用命令
+
+### 檢查 ECS 狀態
+
+```bash
+aws ecs describe-services --cluster my-project-cluster --services backend-service \
+  --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
+```
+
+### 查看日誌
+
+```bash
+aws logs tail /ecs/my-project-backend --follow
+```
+
+### 強制重新部署
+
+```bash
+aws ecs update-service --cluster my-project-cluster --service backend-service \
+  --force-new-deployment
+```
+
+### 測試 ALB
+
+```bash
+curl http://YOUR_ALB_DNS/health
+```
+
+---
+
+## 🐛 故障排查
+
+### 問題：ECS Task 啟動失敗
+
+1. 查看日誌：
+   ```bash
+   aws logs tail /ecs/my-project-backend
+   ```
+
+2. 常見原因：
+   - 映像不存在 → 確認 ECR 中有對應的 tag
+   - 架構不匹配 → 使用 `--platform linux/amd64` 構建
+   - 環境變數錯誤 → 檢查 DB_HOST 等設定
+
+### 問題：Target Group 不健康
+
+1. 確認應用監聽 port 3000
+2. 確認 `/health` 端點正常
+3. 檢查 Security Group 規則
+
+### 問題：無法連接數據庫
+
+1. 確認 RDS Security Group 允許 ECS Security Group
+2. 確認 DB_HOST 是 RDS endpoint（不是 localhost）
+3. 確認密碼正確
+
+---
+
+## 📝 需要記錄的值
+
+完成設置後，記錄以下值（GitHub Actions 會用到）：
+
+| 項目 | 你的值 |
+|------|--------|
+| AWS Account ID | |
+| AWS Region | us-west-2 |
+| ECR Repository | my-project-backend |
+| ECS Cluster | my-project-cluster |
+| ECS Service | backend-service |
+| ALB DNS | |
+| S3 Bucket | |
+| CloudFront Distribution ID | |
+| CloudFront Domain | |
