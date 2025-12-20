@@ -6,15 +6,15 @@
 
 完成後你會擁有：
 
-| 資源 | 用途 |
-|------|------|
-| VPC + Subnets | 網絡基礎 |
-| Security Groups | 防火牆規則 |
-| RDS MySQL | 數據庫 |
-| ECR | Docker 映像倉庫 |
-| ECS Cluster + Service | 運行 Backend 容器 |
-| ALB | 負載均衡器 |
-| S3 + CloudFront | 託管 Frontend 靜態網站 |
+| 資源                  | 用途                   |
+| --------------------- | ---------------------- |
+| VPC + Subnets         | 網絡基礎               |
+| Security Groups       | 防火牆規則             |
+| RDS MySQL             | 數據庫                 |
+| ECR                   | Docker 映像倉庫        |
+| ECS Cluster + Service | 運行 Backend 容器      |
+| ALB                   | 負載均衡器             |
+| S3 + CloudFront       | 託管 Frontend 靜態網站 |
 
 ---
 
@@ -24,17 +24,18 @@
 
 **AWS Console**: VPC → Create VPC
 
-| 設定 | 值 |
-|------|-----|
-| Name | `my-project-vpc` |
-| IPv4 CIDR | `10.0.0.0/16` |
-| 選擇 | VPC and more |
-| AZs | 2 |
-| Public subnets | 2 |
-| Private subnets | 2 |
-| NAT gateways | 1 per AZ |
+| 設定            | 值               |
+| --------------- | ---------------- |
+| Name            | `my-project-vpc` |
+| IPv4 CIDR       | `10.0.0.0/16`    |
+| 選擇            | VPC and more     |
+| AZs             | 2                |
+| Public subnets  | 2                |
+| Private subnets | 2                |
+| NAT gateways    | 1 per AZ         |
 
 ✅ **驗證**：
+
 ```bash
 aws ec2 describe-vpcs --filters "Name=tag:Name,Values=my-project-vpc" --query 'Vpcs[0].VpcId'
 ```
@@ -45,27 +46,27 @@ aws ec2 describe-vpcs --filters "Name=tag:Name,Values=my-project-vpc" --query 'V
 
 #### ALB Security Group
 
-| 設定 | 值 |
-|------|-----|
-| Name | `my-project-alb-sg` |
-| VPC | `my-project-vpc` |
-| Inbound | HTTP (80) from 0.0.0.0/0 |
+| 設定    | 值                         |
+| ------- | -------------------------- |
+| Name    | `my-project-alb-sg`        |
+| VPC     | `my-project-vpc`           |
+| Inbound | HTTP (80) from 0.0.0.0/0   |
 | Inbound | HTTPS (443) from 0.0.0.0/0 |
 
 #### ECS Security Group
 
-| 設定 | 值 |
-|------|-----|
-| Name | `my-project-ecs-sg` |
-| VPC | `my-project-vpc` |
+| 設定    | 值                                |
+| ------- | --------------------------------- |
+| Name    | `my-project-ecs-sg`               |
+| VPC     | `my-project-vpc`                  |
 | Inbound | TCP 3000 from `my-project-alb-sg` |
 
 #### RDS Security Group
 
-| 設定 | 值 |
-|------|-----|
-| Name | `my-project-rds-sg` |
-| VPC | `my-project-vpc` |
+| 設定    | 值                                    |
+| ------- | ------------------------------------- |
+| Name    | `my-project-rds-sg`                   |
+| VPC     | `my-project-vpc`                      |
 | Inbound | MySQL (3306) from `my-project-ecs-sg` |
 
 ---
@@ -76,33 +77,34 @@ aws ec2 describe-vpcs --filters "Name=tag:Name,Values=my-project-vpc" --query 'V
 
 **AWS Console**: RDS → Subnet groups → Create
 
-| 設定 | 值 |
-|------|-----|
-| Name | `my-project-db-subnet-group` |
-| VPC | `my-project-vpc` |
+| 設定    | 值                            |
+| ------- | ----------------------------- |
+| Name    | `my-project-db-subnet-group`  |
+| VPC     | `my-project-vpc`              |
 | Subnets | 選擇 2 個 **private** subnets |
 
 ### 2.2 創建 RDS MySQL
 
 **AWS Console**: RDS → Databases → Create
 
-| 設定 | 值 |
-|------|-----|
-| Engine | MySQL 8.0 |
-| Template | Free tier |
-| DB identifier | `my-project-mysql` |
-| Master username | `admin` |
-| Master password | （記住這個密碼！） |
-| Instance class | `db.t3.micro` |
-| VPC | `my-project-vpc` |
-| Subnet group | `my-project-db-subnet-group` |
-| Public access | **No** |
-| Security group | `my-project-rds-sg` |
-| Initial database | `mydb` |
+| 設定             | 值                           |
+| ---------------- | ---------------------------- |
+| Engine           | MySQL 8.0                    |
+| Template         | Free tier                    |
+| DB identifier    | `my-project-mysql`           |
+| Master username  | `admin`                      |
+| Master password  | （記住這個密碼！）           |
+| Instance class   | `db.t3.micro`                |
+| VPC              | `my-project-vpc`             |
+| Subnet group     | `my-project-db-subnet-group` |
+| Public access    | **No**                       |
+| Security group   | `my-project-rds-sg`          |
+| Initial database | `mydb`                       |
 
 ⏱️ 等待 5-10 分鐘...
 
 ✅ **記錄 Endpoint**：
+
 ```bash
 aws rds describe-db-instances --db-instance-identifier my-project-mysql \
   --query 'DBInstances[0].Endpoint.Address' --output text
@@ -116,21 +118,21 @@ aws rds describe-db-instances --db-instance-identifier my-project-mysql \
 
 **AWS Console**: IAM → Roles → Create role
 
-| 步驟 | 設定 |
-|------|------|
+| 步驟           | 設定                                                                     |
+| -------------- | ------------------------------------------------------------------------ |
 | Trusted entity | AWS service → Elastic Container Service → Elastic Container Service Task |
-| Policy | `AmazonECSTaskExecutionRolePolicy` |
-| Role name | `ecsTaskExecutionRole` |
+| Policy         | `AmazonECSTaskExecutionRolePolicy`                                       |
+| Role name      | `ecsTaskExecutionRole`                                                   |
 
 ### 3.2 ECS Task Role
 
 **AWS Console**: IAM → Roles → Create role
 
-| 步驟 | 設定 |
-|------|------|
+| 步驟           | 設定                                                                     |
+| -------------- | ------------------------------------------------------------------------ |
 | Trusted entity | AWS service → Elastic Container Service → Elastic Container Service Task |
-| Policy | （暫時不附加） |
-| Role name | `ecsTaskRole` |
+| Policy         | （暫時不附加）                                                           |
+| Role name      | `ecsTaskRole`                                                            |
 
 ---
 
@@ -138,12 +140,13 @@ aws rds describe-db-instances --db-instance-identifier my-project-mysql \
 
 **AWS Console**: ECR → Repositories → Create
 
-| 設定 | 值 |
-|------|-----|
-| Visibility | Private |
-| Name | `my-project-backend` |
+| 設定       | 值                   |
+| ---------- | -------------------- |
+| Visibility | Private              |
+| Name       | `my-project-backend` |
 
 ✅ **記錄 URI**：
+
 ```bash
 aws ecr describe-repositories --repository-names my-project-backend \
   --query 'repositories[0].repositoryUri' --output text
@@ -155,10 +158,10 @@ aws ecr describe-repositories --repository-names my-project-backend \
 
 **AWS Console**: CloudWatch → Log groups → Create
 
-| 設定 | 值 |
-|------|-----|
-| Name | `/ecs/my-project-backend` |
-| Retention | 7 days |
+| 設定      | 值                        |
+| --------- | ------------------------- |
+| Name      | `/ecs/my-project-backend` |
+| Retention | 7 days                    |
 
 ---
 
@@ -166,10 +169,10 @@ aws ecr describe-repositories --repository-names my-project-backend \
 
 **AWS Console**: ECS → Clusters → Create
 
-| 設定 | 值 |
-|------|-----|
-| Name | `my-project-cluster` |
-| Infrastructure | AWS Fargate |
+| 設定           | 值                   |
+| -------------- | -------------------- |
+| Name           | `my-project-cluster` |
+| Infrastructure | AWS Fargate          |
 
 ---
 
@@ -179,29 +182,30 @@ aws ecr describe-repositories --repository-names my-project-backend \
 
 **AWS Console**: EC2 → Target Groups → Create
 
-| 設定 | 值 |
-|------|-----|
-| Target type | **IP** |
-| Name | `my-project-backend-tg` |
-| Protocol | HTTP |
-| Port | 3000 |
-| VPC | `my-project-vpc` |
-| Health check path | `/health` |
+| 設定              | 值                      |
+| ----------------- | ----------------------- |
+| Target type       | **IP**                  |
+| Name              | `my-project-backend-tg` |
+| Protocol          | HTTP                    |
+| Port              | 3000                    |
+| VPC               | `my-project-vpc`        |
+| Health check path | `/health`               |
 
 ### 7.2 創建 ALB
 
 **AWS Console**: EC2 → Load Balancers → Create → Application Load Balancer
 
-| 設定 | 值 |
-|------|-----|
-| Name | `my-project-alb` |
-| Scheme | Internet-facing |
-| VPC | `my-project-vpc` |
-| Subnets | 2 個 **public** subnets |
-| Security group | `my-project-alb-sg` |
-| Listener | HTTP:80 → `my-project-backend-tg` |
+| 設定           | 值                                |
+| -------------- | --------------------------------- |
+| Name           | `my-project-alb`                  |
+| Scheme         | Internet-facing                   |
+| VPC            | `my-project-vpc`                  |
+| Subnets        | 2 個 **public** subnets           |
+| Security group | `my-project-alb-sg`               |
+| Listener       | HTTP:80 → `my-project-backend-tg` |
 
 ✅ **記錄 DNS**：
+
 ```bash
 aws elbv2 describe-load-balancers --names my-project-alb \
   --query 'LoadBalancers[0].DNSName' --output text
@@ -319,17 +323,17 @@ aws ec2 describe-security-groups --filters "Name=group-name,Values=my-project-ec
 
 **AWS Console**: ECS → Clusters → my-project-cluster → Services → Create
 
-| 設定 | 值 |
-|------|-----|
-| Task definition | `my-project-backend` |
-| Service name | `backend-service` |
-| Desired tasks | 1 |
-| VPC | `my-project-vpc` |
-| Subnets | 2 個 private subnets |
-| Security group | `my-project-ecs-sg` |
-| Load balancer | `my-project-alb` |
-| Target group | `my-project-backend-tg` |
-| Container port | 3000 |
+| 設定            | 值                      |
+| --------------- | ----------------------- |
+| Task definition | `my-project-backend`    |
+| Service name    | `backend-service`       |
+| Desired tasks   | 1                       |
+| VPC             | `my-project-vpc`        |
+| Subnets         | 2 個 private subnets    |
+| Security group  | `my-project-ecs-sg`     |
+| Load balancer   | `my-project-alb`        |
+| Target group    | `my-project-backend-tg` |
+| Container port  | 3000                    |
 
 ⏱️ 等待 2-5 分鐘...
 
@@ -354,44 +358,44 @@ curl http://$ALB_DNS/health
 
 **AWS Console**: S3 → Create bucket
 
-| 設定 | 值 |
-|------|-----|
-| Name | `my-project-frontend-bucket`（必須全球唯一）|
-| Region | `us-west-2` |
-| Block all public access | ✅ 保持勾選 |
+| 設定                    | 值                                           |
+| ----------------------- | -------------------------------------------- |
+| Name                    | `my-project-frontend-bucket`（必須全球唯一） |
+| Region                  | `us-west-2`                                  |
+| Block all public access | ✅ 保持勾選                                  |
 
 ### 11.2 創建 CloudFront Distribution
 
 **AWS Console**: CloudFront → Create distribution
 
-| 設定 | 值 |
-|------|-----|
-| Origin domain | 選擇你的 S3 bucket |
-| Origin access | Origin access control (OAC) |
-| Create new OAC | 點擊創建 |
-| Default root object | `index.html` |
-| Viewer protocol | Redirect HTTP to HTTPS |
+| 設定                                         | 值                                                            |
+| -------------------------------------------- | ------------------------------------------------------------- |
+| Origin domain                                | 選擇你的 S3 bucket                                            |
+| Allow private S3 bucket access to CloudFront | ✅ **勾選（推薦）**                                           |
+| Origin settings                              | Use recommended origin settings                               |
+| Cache settings                               | Use recommended cache settings tailored to serving S3 content |
+| Default root object                          | `index.html`                                                  |
+| Viewer protocol policy                       | Redirect HTTP to HTTPS                                        |
 
-**創建後**：
-
-1. 點擊 "Copy policy" 複製 S3 bucket policy
-2. 前往 S3 → 你的 bucket → Permissions → Bucket policy
-3. 貼上並保存
+**注意**：新版本會自動創建 OAC 並更新 S3 bucket policy，無需手動操作。
 
 ### 11.3 設置 SPA 錯誤頁面
 
 **CloudFront** → 你的 distribution → Error pages → Create custom error response
 
-| 設定 | 值 |
-|------|-----|
-| HTTP error code | 403 |
-| Customize error response | Yes |
-| Response page path | `/index.html` |
-| HTTP response code | 200 |
+| 設定                     | 值            |
+| ------------------------ | ------------- |
+| HTTP error code          | 403           |
+| Customize error response | Yes           |
+| Response page path       | `/index.html` |
+| HTTP response code       | 200           |
 
 對 404 錯誤重複以上設定。
 
-✅ **記錄 CloudFront Domain**（例如：`d1234abcd.cloudfront.net`）
+✅ **記錄以下值**：
+
+- **CloudFront Domain**（例如：`d1234abcd.cloudfront.net`）
+- **Distribution ID**（例如：`E1234567890ABC`）- GitHub Actions 會用到
 
 ---
 
@@ -430,6 +434,7 @@ curl http://YOUR_ALB_DNS/health
 ### 問題：ECS Task 啟動失敗
 
 1. 查看日誌：
+
    ```bash
    aws logs tail /ecs/my-project-backend
    ```
@@ -457,14 +462,14 @@ curl http://YOUR_ALB_DNS/health
 
 完成設置後，記錄以下值（GitHub Actions 會用到）：
 
-| 項目 | 你的值 |
-|------|--------|
-| AWS Account ID | |
-| AWS Region | us-west-2 |
-| ECR Repository | my-project-backend |
-| ECS Cluster | my-project-cluster |
-| ECS Service | backend-service |
-| ALB DNS | |
-| S3 Bucket | |
-| CloudFront Distribution ID | |
-| CloudFront Domain | |
+| 項目                       | 你的值             |
+| -------------------------- | ------------------ |
+| AWS Account ID             |                    |
+| AWS Region                 | us-west-2          |
+| ECR Repository             | my-project-backend |
+| ECS Cluster                | my-project-cluster |
+| ECS Service                | backend-service    |
+| ALB DNS                    |                    |
+| S3 Bucket                  |                    |
+| CloudFront Distribution ID |                    |
+| CloudFront Domain          |                    |
