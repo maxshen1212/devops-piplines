@@ -61,11 +61,13 @@ jobs:
       - name: Render task definition
         id: task-def
         run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           sed -e "s|__IMAGE_URI__|${{ steps.build-image.outputs.image }}|g" \
               -e "s|__CONTAINER_NAME__|${{ vars.CONTAINER_NAME }}|g" \
               -e "s|__AWS_REGION__|${{ vars.AWS_REGION }}|g" \
-              backend/taskdef.template.json > task-definition.json
-          echo "task-definition=task-definition.json" >> $GITHUB_OUTPUT
+              -e "s|__ACCOUNT_ID__|${ACCOUNT_ID}|g" \
+              taskdef.template.json > task-definition.json
+          echo "task-definition=backend/task-definition.json" >> $GITHUB_OUTPUT
 
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
