@@ -30,23 +30,23 @@
       "secrets": [
         {
           "name": "DB_HOST",
-          "valueFrom": "arn:aws:secretsmanager:__AWS_REGION__:__ACCOUNT_ID__:secret:doublespot/db:host::"
+          "valueFrom": "__SECRET_ARN__:host::"
         },
         {
           "name": "DB_PORT",
-          "valueFrom": "arn:aws:secretsmanager:__AWS_REGION__:__ACCOUNT_ID__:secret:doublespot/db:port::"
+          "valueFrom": "__SECRET_ARN__:port::"
         },
         {
           "name": "DB_USER",
-          "valueFrom": "arn:aws:secretsmanager:__AWS_REGION__:__ACCOUNT_ID__:secret:doublespot/db:username::"
+          "valueFrom": "__SECRET_ARN__:username::"
         },
         {
           "name": "DB_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:__AWS_REGION__:__ACCOUNT_ID__:secret:doublespot/db:password::"
+          "valueFrom": "__SECRET_ARN__:password::"
         },
         {
           "name": "DB_NAME",
-          "valueFrom": "arn:aws:secretsmanager:__AWS_REGION__:__ACCOUNT_ID__:secret:doublespot/db:dbname::"
+          "valueFrom": "__SECRET_ARN__:dbname::"
         }
       ],
       "logConfiguration": {
@@ -66,7 +66,18 @@
         "timeout": 5,
         "retries": 3,
         "startPeriod": 60
-      }
+      },
+      "stopTimeout": 30,
+      "linuxParameters": {
+        "initProcessEnabled": true
+      },
+      "ulimits": [
+        {
+          "name": "nofile",
+          "softLimit": 65536,
+          "hardLimit": 65536
+        }
+      ]
     }
   ]
 }

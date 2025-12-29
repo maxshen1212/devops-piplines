@@ -37,7 +37,7 @@ pnpm-debug.log*
 # Temporary files
 *.tmp
 *.temp
-/tmp/
+**/tmp/
 
 # AWS CLI output
 .aws-sam/

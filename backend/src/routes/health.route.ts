@@ -5,7 +5,11 @@ const router = Router();
 
 // Simple health check for ALB (no external dependencies)
 router.get("/", (_req, res) => {
-  res.status(200).send("ok");
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
 });
 
 // Database health check endpoint

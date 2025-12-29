@@ -14,6 +14,7 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 | VPC + Subnets   | 網絡隔離            |
 | Security Groups | 防火牆規則          |
 | RDS MySQL       | 數據庫（可選）      |
+| Secrets Manager | 敏感資訊管理        |
 | ECR             | Docker 映像倉庫     |
 | ECS + Fargate   | 運行容器            |
 | ALB             | 負載均衡            |
@@ -145,7 +146,32 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 
 ---
 
-## Part 4: ECR + CloudWatch
+## Part 4: Secrets Manager
+
+**Console**: Secrets Manager → Store a new secret
+
+| 設定        | 值                   |
+| ----------- | -------------------- |
+| Secret type | Other type of secret |
+| Secret name | `doublespot/backend` |
+| Key/Value   | `DB_PASSWORD`, etc.  |
+
+**ecsTaskExecutionRole 需加權限**: `secretsmanager:GetSecretValue`
+
+**Task Definition 引用**（格式：`secret-arn:json-key::`）:
+
+```json
+"secrets": [
+  {
+    "name": "DB_PASSWORD",
+    "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:doublespot/backend:DB_PASSWORD::"
+  }
+]
+```
+
+---
+
+## Part 5: ECR + CloudWatch
 
 ### ECR Repository
 
@@ -167,7 +193,7 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 
 ---
 
-## Part 5: ECS Cluster
+## Part 6: ECS Cluster
 
 **Console**: ECS → Clusters → Create
 
@@ -178,9 +204,9 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 
 ---
 
-## Part 6: Load Balancer
+## Part 7: Load Balancer
 
-### 6.1 Target Group
+### 7.1 Target Group
 
 **Console**: EC2 → Target Groups → Create
 
@@ -191,7 +217,7 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 | Port              | 3000                    |
 | Health check path | `/health`               |
 
-### 6.2 ALB
+### 7.2 ALB
 
 **Console**: EC2 → Load Balancers → Create ALB
 
@@ -205,7 +231,7 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 
 ---
 
-## Part 7: ECS Service
+## Part 8: ECS Service
 
 **Console**: ECS → Clusters → doublespot-cluster → Create service
 
@@ -223,9 +249,9 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 
 ---
 
-## Part 8: Frontend（S3 + CloudFront）
+## Part 9: Frontend（S3 + CloudFront）
 
-### 8.1 S3 Bucket
+### 9.1 S3 Bucket
 
 **Console**: S3 → Create bucket
 
@@ -234,7 +260,7 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 | Name                    | `doublespot-frontend-xxx` |
 | Block all public access | ✅ 保持勾選               |
 
-### 8.2 CloudFront
+### 9.2 CloudFront
 
 **Console**: CloudFront → Create distribution
 
@@ -245,7 +271,7 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 | Default root object    | `index.html`           |
 | Viewer protocol policy | Redirect HTTP to HTTPS |
 
-### 8.3 新增 ALB Origin（API 代理）
+### 9.3 新增 ALB Origin（API 代理）
 
 > ⚠️ 這步讓前端透過 CloudFront 訪問 API，避免 CORS 問題
 
@@ -258,7 +284,7 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 | HTTP port     | 80                                               |
 | Origin name   | `alb-origin`（自動生成）                         |
 
-### 8.4 新增 API Behavior
+### 9.4 新增 API Behavior
 
 **CloudFront** → Behaviors → Create behavior
 
@@ -273,7 +299,7 @@ Frontend: GitHub Actions → S3 → CloudFront → Browser
 
 > 💡 `/health*` 會匹配 `/health` 和 `/health/db`
 
-### 8.5 更新 GitHub Variable
+### 9.5 更新 GitHub Variable
 
 ```
 VITE_API_BASE_URL=https://d1234abcd.cloudfront.net
@@ -285,7 +311,7 @@ VITE_API_BASE_URL=https://d1234abcd.cloudfront.net
 fetch(`${VITE_API_BASE_URL}/health`);
 ```
 
-### 8.6 SPA Error Pages
+### 9.6 SPA Error Pages
 
 **CloudFront** → Error pages → Create：
 
@@ -296,7 +322,7 @@ fetch(`${VITE_API_BASE_URL}/health`);
 
 ---
 
-## Part 9: GitHub Variables 設定
+## Part 10: GitHub Variables 設定
 
 **GitHub Repo** → Settings → Secrets and variables → Actions → Variables
 
@@ -339,14 +365,15 @@ curl https://YOUR_CLOUDFRONT_DOMAIN/health
 
 ## 🐛 常見問題
 
-| 問題                    | 解決方案                                     |
-| ----------------------- | -------------------------------------------- |
-| ECS Task 啟動失敗       | 查看 CloudWatch 日誌，確認映像存在           |
-| Target Group 不健康     | 確認 `/health` 返回 200，檢查 Security Group |
-| 無法連接數據庫          | 確認 RDS SG 允許 ECS SG，檢查 DB_HOST 設定   |
-| GitHub Actions 認證失敗 | 確認 OIDC Trust Policy 的 repo 名稱正確      |
-| CloudFront 403          | 確認 OAC 設定正確，S3 bucket policy 已更新   |
-| API 請求 502/504        | 確認 ALB Origin 使用 HTTP only，port 80      |
+| 問題                    | 解決方案                                         |
+| ----------------------- | ------------------------------------------------ |
+| ECS Task 啟動失敗       | 查看 CloudWatch 日誌，確認映像存在               |
+| Target Group 不健康     | 確認 `/health` 返回 200，檢查 Security Group     |
+| 無法連接數據庫          | 確認 RDS SG 允許 ECS SG，檢查 DB_HOST 設定       |
+| Secret 讀取失敗         | 確認 ecsTaskExecutionRole 有 secretsmanager 權限 |
+| GitHub Actions 認證失敗 | 確認 OIDC Trust Policy 的 repo 名稱正確          |
+| CloudFront 403          | 確認 OAC 設定正確，S3 bucket policy 已更新       |
+| API 請求 502/504        | 確認 ALB Origin 使用 HTTP only，port 80          |
 
 ---
 
@@ -356,6 +383,8 @@ curl https://YOUR_CLOUDFRONT_DOMAIN/health
 - [ ] Security Groups 規則正確
 - [ ] IAM OIDC Provider 已創建
 - [ ] GitHubActionsRole 創建並設定 Trust Policy
+- [ ] Secrets Manager 存放敏感資訊
+- [ ] ecsTaskExecutionRole 有 Secrets Manager 讀取權限
 - [ ] ECR Repository 創建完成
 - [ ] ECS Cluster 創建完成
 - [ ] ALB + Target Group 創建完成

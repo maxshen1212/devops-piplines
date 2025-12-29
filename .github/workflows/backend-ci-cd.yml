@@ -34,7 +34,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build TypeScript
         run: npm run build
 
       - name: Configure AWS credentials
@@ -47,26 +53,43 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image to Amazon ECR
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image to Amazon ECR
         id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
-          IMAGE_TAG: ${{ github.sha }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set image output
+        id: image-output
         run: |
-          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}" >> $GITHUB_OUTPUT
 
       - name: Render task definition
         id: task-def
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          sed -e "s|__IMAGE_URI__|${{ steps.build-image.outputs.image }}|g" \
+
+          # Get the full Secret ARN (includes the random suffix)
+          SECRET_ARN=$(aws secretsmanager describe-secret --secret-id doublespot/db --query ARN --output text)
+
+          sed -e "s|__IMAGE_URI__|${{ steps.image-output.outputs.image }}|g" \
               -e "s|__CONTAINER_NAME__|${{ vars.CONTAINER_NAME }}|g" \
               -e "s|__AWS_REGION__|${{ vars.AWS_REGION }}|g" \
               -e "s|__ACCOUNT_ID__|${ACCOUNT_ID}|g" \
+              -e "s|__SECRET_ARN__|${SECRET_ARN}|g" \
               taskdef.template.json > task-definition.json
+
+          # Validate generated JSON
+          cat task-definition.json | jq .
+
           echo "task-definition=backend/task-definition.json" >> $GITHUB_OUTPUT
 
       - name: Deploy Amazon ECS task definition

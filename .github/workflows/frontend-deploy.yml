@@ -49,8 +49,17 @@ jobs:
         run: |
           aws s3 sync dist/ s3://${{ vars.S3_BUCKET }} --delete
 
-      - name: Invalidate CloudFront
+      - name: Invalidate CloudFront and wait for completion
         run: |
-          aws cloudfront create-invalidation \
+          INVALIDATION_ID=$(aws cloudfront create-invalidation \
             --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }} \
-            --paths "/*"
+            --paths "/*" \
+            --query 'Invalidation.Id' --output text)
+
+          echo "Waiting for CloudFront invalidation $INVALIDATION_ID to complete..."
+
+          aws cloudfront wait invalidation-completed \
+            --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --id $INVALIDATION_ID
+
+          echo "CloudFront invalidation completed successfully!"
