@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
-import { apiFetchText } from "../api/client";
+import { apiFetch } from "../api/client";
 
 type HealthStatus = "ok" | "error" | "unknown" | "loading";
+
+interface HealthResponse {
+  status: "ok" | "error";
+  timestamp: string;
+  uptime: number;
+}
 
 export function useHealthCheck() {
   const [status, setStatus] = useState<HealthStatus>("loading");
@@ -9,10 +15,10 @@ export function useHealthCheck() {
   useEffect(() => {
     let isMounted = true;
 
-    apiFetchText("/health")
-      .then((text) => {
+    apiFetch<HealthResponse>("/health")
+      .then((data) => {
         if (isMounted) {
-          setStatus(text === "ok" ? "ok" : "unknown");
+          setStatus(data.status === "ok" ? "ok" : "unknown");
         }
       })
       .catch(() => {
@@ -28,4 +34,3 @@ export function useHealthCheck() {
 
   return { status };
 }
-
